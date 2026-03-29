@@ -10,28 +10,19 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ---------------------------------------------------------------------------
+// Admin roles
+// ---------------------------------------------------------------------------
+
 enum AdminRole {
   SUPER_ADMIN
   ADMIN
   MODERATOR
 }
 
-model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String?   @unique
-  emailVerified DateTime?
-  image         String?
-  role          AdminRole?
-  accounts      Account[]
-  sessions      Session[]
-  campaigns     Campaign[]
-  donations     Donation[]
-  adminInvitesSent AdminInvite[] @relation("InvitedBy")
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
+// ---------------------------------------------------------------------------
+// NextAuth models
+// ---------------------------------------------------------------------------
 
 model Account {
   id                String  @id @default(cuid())
@@ -68,44 +59,102 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-model Campaign {
-  id          String   @id @default(cuid())
-  title       String
-  description String   @db.Text
-  goal        Float
-  raised      Float    @default(0)
-  image       String?
-  category    String?
-  active      Boolean  @default(true)
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  donations   Donation[]
+// ---------------------------------------------------------------------------
+// User
+// ---------------------------------------------------------------------------
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model User {
+  id            String     @id @default(cuid())
+  name          String?
+  username      String?    @unique
+  email         String?    @unique
+  emailVerified DateTime?
+  image         String?
+  role          AdminRole?
+
+  accounts      Account[]
+  sessions      Session[]
+  rooms         RoomUser[]
+  messages      Message[]
+  upvotes       Upvote[]
+  adminInvites  AdminInvite[] @relation("InvitedBy")
 }
 
-model Donation {
-  id         String   @id @default(cuid())
-  amount     Float
-  message    String?
-  anonymous  Boolean  @default(false)
-  campaignId String
-  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  userId     String?
-  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+// ---------------------------------------------------------------------------
+// Room / Stream models (existing — do NOT remove)
+// ---------------------------------------------------------------------------
 
-  createdAt DateTime @default(now())
+model Room {
+  id          String     @id @default(cuid())
+  name        String
+  description String?
+  thumbnail   String?
+  streamKey   String?    @unique
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  users    RoomUser[]
+  messages Message[]
+  stream   Stream?
 }
+
+model RoomUser {
+  id     String @id @default(cuid())
+  userId String
+  roomId String
+  role   String @default("viewer")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roomId])
+}
+
+model Stream {
+  id        String   @id @default(cuid())
+  roomId    String   @unique
+  isLive    Boolean  @default(false)
+  startedAt DateTime?
+  endedAt   DateTime?
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  content   String
+  createdAt DateTime @default(now())
+  userId    String
+  roomId    String
+
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room   Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+}
+
+model Upvote {
+  id        String   @id @default(cuid())
+  userId    String
+  roomId    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roomId])
+}
+
+// ---------------------------------------------------------------------------
+// Admin invite (new — multiple admin support)
+// ---------------------------------------------------------------------------
 
 model AdminInvite {
-  id          String    @id @default(cuid())
+  id          String     @id @default(cuid())
   email       String
-  role        AdminRole @default(ADMIN)
-  token       String    @unique
+  role        AdminRole  @default(ADMIN)
+  token       String     @unique @default(cuid())
   invitedById String
-  invitedBy   User      @relation("InvitedBy", fields: [invitedById], references: [id])
-  accepted    Boolean   @default(false)
+  accepted    Boolean    @default(false)
   expiresAt   DateTime
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime   @default(now())
+
+  invitedBy User @relation("InvitedBy", fields: [invitedById], references: [id], onDelete: Cascade)
 }
