@@ -1,13 +1,18 @@
-import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { getCurrentUser, hasRole } from "@/lib/admin";
-import { AdminRole } from "@prisma/client";
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { isAdmin } from "@/lib/admin";
+import { prisma } from "@/lib/prismaClient";
 
-// GET /api/admin/users  — list all users with roles (ADMIN+)
-export async function GET() {
-  const user = await getCurrentUser();
+// GET /api/admin/users — list all users (admin only)
+export async function GET(req: NextRequest) {
+  const session = await getServerSession(authOptions);
 
-  if (!user || !hasRole(user.role, AdminRole.ADMIN)) {
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!(await isAdmin(session.user.id))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -16,11 +21,9 @@ export async function GET() {
       id: true,
       name: true,
       email: true,
-      image: true,
       role: true,
-      createdAt: true,
     },
-    orderBy: { createdAt: "desc" },
+    orderBy: { name: "asc" },
   });
 
   return NextResponse.json({ users });
