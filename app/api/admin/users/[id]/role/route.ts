@@ -1,69 +1,78 @@
-import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { getCurrentUser, hasRole } from "@/lib/admin";
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { isSuperAdmin } from "@/lib/admin";
+import { prisma } from "@/lib/prismaClient";
 import { AdminRole } from "@prisma/client";
 
-// PATCH /api/admin/users/[id]/role  — update a user's role (SUPER_ADMIN only)
+// PATCH /api/admin/users/[id]/role — update a user's role (super-admin only)
 export async function PATCH(
-  request: Request,
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const currentUser = await getCurrentUser();
+  const session = await getServerSession(authOptions);
 
-  if (!currentUser || !hasRole(currentUser.role, AdminRole.SUPER_ADMIN)) {
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!(await isSuperAdmin(session.user.id))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { id } = params;
-  const body = await request.json();
-  const { role } = body as { role: AdminRole | null };
+  const { role } = await req.json();
 
-  // Cannot change your own role
-  if (id === currentUser.id) {
-    return NextResponse.json({ error: "Cannot change your own role" }, { status: 400 });
-  }
-
-  // Validate role value
-  if (role !== null && !Object.values(AdminRole).includes(role)) {
+  if (!role || !Object.values(AdminRole).includes(role)) {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
   }
 
-  // Cannot promote another SUPER_ADMIN
-  if (role === AdminRole.SUPER_ADMIN) {
-    return NextResponse.json({ error: "Cannot assign SUPER_ADMIN role" }, { status: 400 });
+  // Check that the target user exists before attempting update
+  const existingUser = await prisma.user.findUnique({
+    where: { id: params.id },
+  });
+
+  if (!existingUser) {
+    return NextResponse.json({ error: "User not found" }, { status: 404 });
   }
 
-  const updated = await prisma.user.update({
-    where: { id },
-    data: { role: role ?? null },
+  const user = await prisma.user.update({
+    where: { id: params.id },
+    data: { role },
     select: { id: true, name: true, email: true, role: true },
   });
 
-  return NextResponse.json({ user: updated });
+  return NextResponse.json({ user });
 }
 
-// DELETE /api/admin/users/[id]/role  — remove a user's admin role (SUPER_ADMIN only)
+// DELETE /api/admin/users/[id]/role — remove a user's role (super-admin only)
 export async function DELETE(
-  _request: Request,
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const currentUser = await getCurrentUser();
+  const session = await getServerSession(authOptions);
 
-  if (!currentUser || !hasRole(currentUser.role, AdminRole.SUPER_ADMIN)) {
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!(await isSuperAdmin(session.user.id))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { id } = params;
+  // Check that the target user exists before attempting update
+  const existingUser = await prisma.user.findUnique({
+    where: { id: params.id },
+  });
 
-  if (id === currentUser.id) {
-    return NextResponse.json({ error: "Cannot remove your own role" }, { status: 400 });
+  if (!existingUser) {
+    return NextResponse.json({ error: "User not found" }, { status: 404 });
   }
 
-  const updated = await prisma.user.update({
-    where: { id },
+  const user = await prisma.user.update({
+    where: { id: params.id },
     data: { role: null },
     select: { id: true, name: true, email: true, role: true },
   });
 
-  return NextResponse.json({ user: updated });
+  return NextResponse.json({ user });
 }
